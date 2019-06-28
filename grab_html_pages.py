@@ -2,31 +2,37 @@ import requests
 import numpy as np
 from bs4 import BeautifulSoup
 import proxy
+import useragent
 import time
+
 
 # grab_html_pages.py Description 
 #-------------------------------
-# Grab list of random proxies from free-proxy-list.net.  Use priceQueries()
+# Grab list of proxies and user-agents from respective websites.  Use priceQueries()
 # to loop through smaller subset of primary price query. Use pageQueries()
 # to iterate through all pages of a price query subset.  makeRequest() carries
-# out the HTML get() request using a random proxy IP address.  saveHtmlFile() 
+# out the HTML get() request using a random proxy IP address and user-agent.  saveHtmlFile() 
 # saves the page as an HTML file in the HTML_FILES directory.  lastPage() checks
-# if the current HTML response object is the last page of a sub-price query. 
+# if the current HTML response object is the last page of a sub-price query (allowing
+# the script to move forward to the next sub-price query). 
 #-------------------------------
 
 # Start Time
 t0 = time.time()
 
-# Get response object via proxy.  Test that response returned OK.  If not, Retry.
+# Get response object via proxy and user agent.  Test that response returned OK.  If not, Retry.
 # Print proxy used to console...
-def makeRequest(baseUrl, payload, proxy_list):
+def makeRequest(baseUrl, payload, proxy_list, agent_list):
     random_proxy = np.random.choice(proxy_list)
-    r = requests.get(baseUrl, params=payload, proxies=random_proxy)
-    print('Proxy Used: '+ str(random_proxy))
+    random_agent = np.random.choice(agent_list)
+    r = requests.get(baseUrl, params=payload, proxies=random_proxy, headers=random_agent)
+    print(f'Proxy Used: {random_proxy} | R Status: {r.status_code} | R OK: {r.ok}' )
     while not r.ok:
+        proxy_list[:] = [p for p in proxy_list if p.get('http') != random_proxy.get('http')]
         random_proxy = np.random.choice(proxy_list)
-        r = requests.get(baseUrl, params=payload, proxies=random_proxy) 
-        print('Proxy Used: '+ str(random_proxy))
+        random_agent = np.random.choice(agent_list)
+        r = requests.get(baseUrl, params=payload, proxies=random_proxy, headers=random_agent) 
+        print(f'Proxy Used: {random_proxy} | R Status: {r.status_code} | R OK: {r.ok}' )
     return r
     
 # Checks if the HTML response contains 'No Results Found'
@@ -49,7 +55,7 @@ def saveHtmlFile(response, low_price, page):
 
 # Iterate through all pages of a particular high/low sub-query price
 # Break out when lastPage(soup) evaluates to TRUE
-def pageQueries(low_query_price, high_query_price, proxy_list):
+def pageQueries(low_query_price, high_query_price, proxy_list,agents):
     i = 1
     while i <= 20: # Website limits max of 20 pages on any search results
         baseUrl = 'https://www.har.com/search/dosearch/'
@@ -62,7 +68,7 @@ def pageQueries(low_query_price, high_query_price, proxy_list):
                     'listing_price_max' : high_query_price,
                     'city' : 'Houston'
                     }
-        r = makeRequest(baseUrl, payload, proxy_list)
+        r = makeRequest(baseUrl, payload,proxy_list,agents)
         soup = BeautifulSoup(r.text, 'html.parser')
         if not lastPage(soup):
             print('PAGE '+ str(i)) # Print Page Number
@@ -75,13 +81,18 @@ def pageQueries(low_query_price, high_query_price, proxy_list):
 # This ensures less than 20 pages are returned per sub-query.
 # No queries are seen to return more than 20 pages for a step
 # of 5000.
-def priceQueries(min_price, max_price, step, proxy_list):
+def priceQueries(min_price, max_price, step, proxy_list, agents):
     for i in range(min_price, max_price, step):
-        new_min = i
+        # Ensure we don't return duplicate results for overlapping price queries
+        # by adding $1 to each minimum price query (after the first query)
+        if i == min_price:
+            new_min = i
+        else:
+            new_min = i+1
         new_max = i+step
         print(new_min)
         print(new_max)
-        pageQueries(new_min,new_max,proxy_list)
+        pageQueries(new_min,new_max,proxy_list,agents)
 
 #------------- Main Program ----------------------#    
 
@@ -90,13 +101,16 @@ def priceQueries(min_price, max_price, step, proxy_list):
 # In other words, (min_price - max_price)/step needs 
 # to evaluate to a whole number.
 min_price = 0
-max_price = 500000
+max_price = 1000000
 step = 5000
 
 # Get list of proxies
 proxies = proxy.getProxies()
+# Get list of user-agents
+agents = useragent.getAgents()
+
 #Query all prices
-priceQueries(min_price,max_price,step, proxies)
+priceQueries(min_price,max_price,step, proxies, agents)
 
 # End time
 t1 = time.time()
